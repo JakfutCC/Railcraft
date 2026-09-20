@@ -153,7 +153,6 @@ public abstract class BlockSignalBase extends BlockContainer implements IPostCon
 
     @Override
     public int getLightValue(IBlockAccess world, int x, int y, int z) {
-        if (y < 0) return 0;
         TileEntity tile = world.getTileEntity(x, y, z);
         if (tile instanceof ISignalTile) return ((ISignalTile) tile).getLightValue();
         return 0;

@@ -276,7 +276,6 @@ public class BlockMachine extends BlockContainer implements IPostConnection {
 
     @Override
     public int getLightValue(IBlockAccess world, int x, int y, int z) {
-        if (y < 0) return 0;
         TileEntity tile = world.getTileEntity(x, y, z);
         if (tile instanceof TileMachineBase) return ((TileMachineBase) tile).getLightValue();
         return 0;

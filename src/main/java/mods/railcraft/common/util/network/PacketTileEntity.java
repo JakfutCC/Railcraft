@@ -62,7 +62,7 @@ public class PacketTileEntity extends RailcraftPacket {
         int z = data.readInt();
         short id = data.readShort();
 
-        if (id < 0 || y < 0 || !world.blockExists(x, y, z)) {
+        if (id < 0 || !world.blockExists(x, y, z)) {
             // Game.logDebug("Receive Tile Packet: Block not found");
             return;
         }

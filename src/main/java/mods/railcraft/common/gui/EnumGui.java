@@ -84,6 +84,13 @@ public enum EnumGui {
         return hasContainer;
     }
 
+    public boolean isEntityGui() {
+        return switch (this) {
+            case CART_BORE, CART_TNT_FUSE, CART_TNT_BLAST, CART_CARGO, CART_WORK, CART_ENERGY, CART_RF, CART_TANK, CART_ANCHOR, CART_TRACK_RELAYER, CART_UNDERCUTTER, CART_TRACK_LAYER, LOCO_STEAM, LOCO_ELECTRIC, LOCO_CREATIVE -> true;
+            default -> false;
+        };
+    }
+
     public static EnumGui fromOrdinal(int i) {
         if (i < 0 || i >= VALUES.length) return null;
         return VALUES[i];
