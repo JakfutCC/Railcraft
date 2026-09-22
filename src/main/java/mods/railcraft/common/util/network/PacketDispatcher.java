@@ -9,6 +9,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.world.WorldServer;
 
 import cpw.mods.fml.common.network.NetworkRegistry.TargetPoint;
+import cpw.mods.fml.common.network.internal.FMLProxyPacket;
 
 /**
  *
@@ -37,11 +38,13 @@ public class PacketDispatcher {
     }
 
     public static void sendToWatchers(RailcraftPacket packet, WorldServer world, int worldX, int worldZ) {
+        FMLProxyPacket serializedPacket = null;
         // Query the manager rather than its private vanilla-only watcher storage.
         for (Object candidate : world.playerEntities) {
             if (candidate instanceof EntityPlayerMP player
                     && world.getPlayerManager().isPlayerWatchingChunk(player, worldX >> 4, worldZ >> 4)) {
-                sendToPlayer(packet, player);
+                if (serializedPacket == null) serializedPacket = packet.getPacket();
+                PacketHandler.INSTANCE.channel.sendTo(serializedPacket, player);
             }
         }
     }
