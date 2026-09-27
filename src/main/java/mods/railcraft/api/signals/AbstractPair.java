@@ -25,6 +25,7 @@ import net.minecraft.world.World;
 
 import com.google.common.collect.MapMaker;
 
+import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
 import mods.railcraft.api.core.WorldCoordinate;
@@ -129,6 +130,7 @@ public abstract class AbstractPair {
                 int z = coord.z;
 
                 World world = tile.getWorldObj();
+                if (Loader.isModLoaded("cubicchunks") && !world.checkChunksExist(x, y, z, x, y, z)) continue;
                 if (!world.blockExists(x, y, z)) continue;
 
                 Block block = world.getBlock(x, y, z);
@@ -165,6 +167,13 @@ public abstract class AbstractPair {
         int y = coord.y;
         int z = coord.z;
 
+        World world = tile.getWorldObj();
+        boolean cubicChunksLoaded = Loader.isModLoaded("cubicchunks");
+        if (cubicChunksLoaded && !world.checkChunksExist(x, y, z, x, y, z)) {
+            tileCache.remove(coord);
+            return null;
+        }
+
         boolean useCache;
         try {
             useCache = !IS_BUKKIT && getCoords().isInSameChunk(coord);
@@ -177,18 +186,18 @@ public abstract class AbstractPair {
             if (cacheTarget != null) {
                 if (cacheTarget.isInvalid() || cacheTarget.xCoord != x
                         || cacheTarget.yCoord != y
-                        || cacheTarget.zCoord != z)
+                        || cacheTarget.zCoord != z
+                        || (cubicChunksLoaded && world.getTileEntity(x, y, z) != cacheTarget))
                     tileCache.remove(coord);
                 else if (isValidPair(coord, cacheTarget)) return cacheTarget;
             }
         }
 
-        if (y < 0) {
+        if (y < 0 && !cubicChunksLoaded) {
             clearPairing(coord);
             return null;
         }
 
-        World world = tile.getWorldObj();
         if (!world.blockExists(x, y, z)) return null;
 
         Block block = world.getBlock(x, y, z);
