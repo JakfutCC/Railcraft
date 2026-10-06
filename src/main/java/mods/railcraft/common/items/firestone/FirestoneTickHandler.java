@@ -17,6 +17,10 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.world.World;
 import net.minecraftforge.common.util.ForgeDirection;
 
+import com.cardinalstar.cubicchunks.world.ICubicWorld;
+import com.cardinalstar.cubicchunks.world.cube.ICubeProvider;
+
+import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import cpw.mods.fml.relauncher.Side;
@@ -92,11 +96,27 @@ public class FirestoneTickHandler {
         int y = (int) Math.round(entity.posY) - 5 + rnd.nextInt(12);
         int z = (int) Math.round(entity.posZ) - 5 + rnd.nextInt(12);
 
-        if (y < 1) y = 1;
-        if (y > entity.worldObj.getActualHeight()) y = entity.worldObj.getActualHeight() - 2;
+        if (Loader.isModLoaded("cubicchunks") && CubicFireBounds.isCubicWorld(entity.worldObj)) {
+            if (!CubicFireBounds.contains(entity.worldObj, y)) return null;
+        } else {
+            if (y < 1) y = 1;
+            if (y > entity.worldObj.getActualHeight()) y = entity.worldObj.getActualHeight() - 2;
+        }
 
         if (canBurn(entity.worldObj, x, y, z)) return new int[] { x, y, z };
         return null;
+    }
+
+    private static final class CubicFireBounds {
+
+        private static boolean isCubicWorld(World world) {
+            return world.getChunkProvider() instanceof ICubeProvider;
+        }
+
+        private static boolean contains(World world, int y) {
+            ICubicWorld cubic = (ICubicWorld) world;
+            return y >= cubic.getMinHeight() && y < cubic.getMaxHeight();
+        }
     }
 
     private boolean spawnFire(EntityPlayer player) {
