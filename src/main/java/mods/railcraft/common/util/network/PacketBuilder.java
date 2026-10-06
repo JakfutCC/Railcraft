@@ -33,7 +33,7 @@ public class PacketBuilder implements ISignalPacketBuilder {
         if (tile.getWorldObj() instanceof WorldServer) {
             WorldServer world = (WorldServer) tile.getWorldObj();
             PacketTileEntity pkt = new PacketTileEntity(tile);
-            PacketDispatcher.sendToWatchers(pkt, world, tile.xCoord, tile.zCoord);
+            PacketDispatcher.sendToWatchers(pkt, world, tile.xCoord, tile.yCoord, tile.zCoord);
         }
     }
 

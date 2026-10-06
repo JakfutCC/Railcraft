@@ -8,6 +8,9 @@ package mods.railcraft.common.util.network;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.world.WorldServer;
 
+import com.cardinalstar.cubicchunks.server.CubicPlayerManager;
+
+import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.network.NetworkRegistry.TargetPoint;
 import cpw.mods.fml.common.network.internal.FMLProxyPacket;
 
@@ -38,14 +41,36 @@ public class PacketDispatcher {
     }
 
     public static void sendToWatchers(RailcraftPacket packet, WorldServer world, int worldX, int worldZ) {
+        sendToWatchers(packet, world, worldX, 0, worldZ, false);
+    }
+
+    public static void sendToWatchers(RailcraftPacket packet, WorldServer world, int worldX, int worldY, int worldZ) {
+        sendToWatchers(packet, world, worldX, worldY, worldZ, true);
+    }
+
+    private static void sendToWatchers(RailcraftPacket packet, WorldServer world, int worldX, int worldY, int worldZ,
+            boolean checkHeight) {
+        boolean cubic = checkHeight && Loader.isModLoaded("cubicchunks") && CubicWatchers.isCubic(world);
         FMLProxyPacket serializedPacket = null;
         // Query the manager rather than its private vanilla-only watcher storage.
         for (Object candidate : world.playerEntities) {
             if (candidate instanceof EntityPlayerMP player
-                    && world.getPlayerManager().isPlayerWatchingChunk(player, worldX >> 4, worldZ >> 4)) {
+                    && (cubic ? CubicWatchers.isWatching(world, player, worldX, worldY, worldZ)
+                            : world.getPlayerManager().isPlayerWatchingChunk(player, worldX >> 4, worldZ >> 4))) {
                 if (serializedPacket == null) serializedPacket = packet.getPacket();
                 PacketHandler.INSTANCE.channel.sendTo(serializedPacket, player);
             }
+        }
+    }
+
+    private static final class CubicWatchers {
+
+        private static boolean isCubic(WorldServer world) {
+            return world.getPlayerManager() instanceof CubicPlayerManager;
+        }
+
+        private static boolean isWatching(WorldServer world, EntityPlayerMP player, int x, int y, int z) {
+            return ((CubicPlayerManager) world.getPlayerManager()).isPlayerWatchingCube(player, x >> 4, y >> 4, z >> 4);
         }
     }
 }
