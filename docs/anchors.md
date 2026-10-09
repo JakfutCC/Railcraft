@@ -59,10 +59,17 @@ anchors whose owner is unknown to SU, remain inactive. This can disable existing
 anchors when upgrading; change the rank budget or explicitly disable the rank
 integration if the server wants the fallback owner budget. The GUI reports refusals.
 Range edits are debounced, and fuel slot layouts do not depend on client fuel config.
+Previously active anchors restore first when the budget is contested. Budget-blocked
+World/Personal anchors retry every ten seconds once the budget and owner state allow
+it, even if their cube has unloaded. Editing an area's bounds briefly releases the
+old area before applying the new one; this does not promise uninterrupted networks
+while resizing.
 
 CC requires the companion cube-ticket lifecycle fix: registration of the Forge
 ticket accessor, tracking requested cubes and releasing them with the ticket.
-Unpatched CC builds have a broken force-cube API. The server-only Forge unload
+Unpatched CC builds have a broken force-cube API; anchors refuse cube loading with
+a clear status and log message when the companion API is absent. UniMixins is a
+required dependency (already included in GTNH). The server-only Forge unload
 boundary mixin rechecks players, saving and external tickets immediately before
 an anchor-requested eviction; it preserves normal unload events for AE2 cleanup.
 

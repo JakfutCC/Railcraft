@@ -73,6 +73,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     private boolean refreshTicket;
     private boolean powered;
     private int retryDelay;
+    private boolean waitingForBudget;
 
     public TileAnchorWorld() {
         super(1);
@@ -341,6 +342,11 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     protected void requestTicket() {
         if (hasActiveTicket()) return;
         retryDelay = 20;
+        waitingForBudget = false;
+        if (!AnchorLoading.ticketsAvailable(worldObj)) {
+            loadingStatus = "CC ticket fix required";
+            return;
+        }
         loadingStatus = powered ? "Redstone disabled" : "No fuel or owner offline";
         if (!meetsTicketRequirements()) return;
         if (!volumeAllowed()) {
@@ -353,7 +359,11 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
                 setTicketData(chunkTicket);
                 forceChunkLoading(chunkTicket);
             } else loadingStatus = "Forge ticket limit";
-        } else loadingStatus = "Owner/rank budget exceeded";
+        } else {
+            waitingForBudget = true;
+            loadingStatus = "Owner/rank budget exceeded";
+            mods.railcraft.common.util.anchors.AnchorIndex.get().update(this);
+        }
     }
 
     public boolean needsFuel() {
@@ -408,7 +418,8 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
         AnchorManager.INSTANCE.track(this);
         AnchorVolume volume = getVolume();
         int limit = AnchorLoading.ticketLimit(ticket);
-        if (!meetsTicketRequirements() || !AnchorManager.INSTANCE.canAcquire(this)
+        if (!AnchorLoading.ticketsAvailable(worldObj) || !meetsTicketRequirements()
+                || !AnchorManager.INSTANCE.canAcquire(this)
                 || limit > 0 && volume.size() > limit) {
             loadingStatus = "Inactive: fuel, owner or loading limit";
             if (getTicket() == ticket) releaseTicket();
@@ -432,6 +443,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
         prevY = yCoord;
         prevZ = zCoord;
         loadingStatus = "Active";
+        waitingForBudget = false;
         setupChunks();
         markDirty();
     }
@@ -513,6 +525,17 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
 
     public String getLoadingStatus() {
         return loadingStatus;
+    }
+
+    public boolean isWaitingForBudget() {
+        return waitingForBudget;
+    }
+
+    public void pauseForBudget() {
+        releaseTicket();
+        waitingForBudget = true;
+        loadingStatus = "Owner/rank budget exceeded";
+        mods.railcraft.common.util.anchors.AnchorIndex.get().update(this);
     }
 
     public boolean isPowered() {

@@ -1,6 +1,7 @@
 package mods.railcraft.common.util.anchors;
 
 import java.util.Collection;
+import java.util.UUID;
 
 import com.mojang.authlib.GameProfile;
 
@@ -21,14 +22,18 @@ public final class AnchorBudgets {
 
     public static boolean permits(TileAnchorWorld anchor, long cost, Collection<TileAnchorWorld> active) {
         if (anchor instanceof TileAnchorAdmin) return true;
+        return permits(anchor.getUUID(), anchor.getOwner(), cost, active);
+    }
+
+    public static boolean permits(UUID id, GameProfile owner, long cost, Collection<TileAnchorWorld> active) {
         if (RailcraftConfig.anchorRankLimits && Loader.isModLoaded("serverutilities")) {
-            return Ranks.permits(anchor, cost, active);
+            return Ranks.permits(id, owner, cost, active);
         }
         long used = cost;
         for (TileAnchorWorld other : active) {
-            if (other != anchor && other.hasActiveTicket()
+            if (!other.getUUID().equals(id) && other.hasActiveTicket()
                     && !(other instanceof TileAnchorAdmin)
-                    && PlayerPlugin.isSamePlayer(anchor.getOwner(), other.getOwner()))
+                    && PlayerPlugin.isSamePlayer(owner, other.getOwner()))
                 used += other.getCubeCost();
         }
         return used <= RailcraftConfig.anchorOwnerCubeBudget;
@@ -40,8 +45,8 @@ public final class AnchorBudgets {
             return !Universe.loaded() ? null : Universe.get().getPlayer(owner.getId());
         }
 
-        static boolean permits(TileAnchorWorld anchor, long cost, Collection<TileAnchorWorld> active) {
-            ForgePlayer owner = player(anchor.getOwner());
+        static boolean permits(UUID id, GameProfile profile, long cost, Collection<TileAnchorWorld> active) {
+            ForgePlayer owner = player(profile);
             // Restoration runs on the first tick, after SU loads its universe. Unknown owners fail closed.
             if (owner == null) return false;
             long budget = 0;
@@ -60,7 +65,8 @@ public final class AnchorBudgets {
                         * 16L;
             }
             for (TileAnchorWorld other : active) {
-                if (other == anchor || !other.hasActiveTicket() || other instanceof TileAnchorAdmin) continue;
+                if (other.getUUID().equals(id) || !other.hasActiveTicket() || other instanceof TileAnchorAdmin)
+                    continue;
                 ForgePlayer otherOwner = player(other.getOwner());
                 if (otherOwner != null
                         && (owner == otherOwner || owner.team.isValid() && owner.team == otherOwner.team)) {

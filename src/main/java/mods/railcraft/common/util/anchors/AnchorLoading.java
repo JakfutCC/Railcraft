@@ -6,6 +6,7 @@ import java.util.Set;
 
 import net.minecraft.world.ChunkCoordIntPair;
 import net.minecraft.world.World;
+import net.minecraft.world.WorldServer;
 import net.minecraftforge.common.ForgeChunkManager;
 import net.minecraftforge.common.ForgeChunkManager.Ticket;
 
@@ -46,9 +47,14 @@ public final class AnchorLoading {
         return isCubic(world) ? Cubic.defaultLimit() : ForgeChunkManager.getMaxChunkDepthFor(Railcraft.MOD_ID);
     }
 
+    public static boolean ticketsAvailable(World world) {
+        return !isCubic(world) || Cubic.TICKETS_AVAILABLE;
+    }
+
     public static void loadBlock(World world, int x, int y, int z) {
         if (isCubic(world)) Cubic.load(world, x, y, z);
-        else world.getChunkFromChunkCoords(x >> 4, z >> 4);
+        // provideChunk may return EmptyChunk outside world ticks; restoration must load synchronously.
+        else((WorldServer) world).theChunkProviderServer.loadChunk(x >> 4, z >> 4);
     }
 
     public static void force(Ticket ticket, AnchorVolume volume) {
@@ -57,7 +63,7 @@ public final class AnchorLoading {
         } else {
             for (ChunkCoordIntPair pos : volume.columns()) {
                 ForgeChunkManager.forceChunk(ticket, pos);
-                ticket.world.getChunkFromChunkCoords(pos.chunkXPos, pos.chunkZPos);
+                ((WorldServer) ticket.world).theChunkProviderServer.loadChunk(pos.chunkXPos, pos.chunkZPos);
             }
         }
     }
@@ -72,6 +78,20 @@ public final class AnchorLoading {
     }
 
     private static final class Cubic {
+
+        private static final boolean TICKETS_AVAILABLE = checkTickets();
+
+        private static boolean checkTickets() {
+            try {
+                CubicChunkManager.class.getMethod("releaseCubes", Ticket.class);
+                return true;
+            } catch (NoSuchMethodException error) {
+                mods.railcraft.common.util.misc.Game.log(
+                        org.apache.logging.log4j.Level.ERROR,
+                        "Cube anchors disabled: CubicChunks needs the cube-ticket lifecycle fix (releaseCubes API).");
+                return false;
+            }
+        }
 
         static boolean isCubic(World world) {
             return world instanceof ICubicWorld;

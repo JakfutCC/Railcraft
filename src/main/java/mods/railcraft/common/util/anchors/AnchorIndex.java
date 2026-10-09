@@ -1,6 +1,9 @@
 package mods.railcraft.common.util.anchors;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -43,6 +46,8 @@ public final class AnchorIndex extends WorldSavedData {
         tag.setInteger("z", anchor.zCoord);
         tag.setString("type", anchor.getMachineType().getTag());
         tag.setBoolean("restore", anchor.shouldRestore());
+        tag.setBoolean("active", anchor.hasActiveTicket());
+        tag.setBoolean("waitingForBudget", anchor.isWaitingForBudget());
         tag.setInteger("cost", (int) anchor.getCubeCost());
         AnchorVolume volume = anchor.getVolume();
         tag.setIntArray(
@@ -55,6 +60,12 @@ public final class AnchorIndex extends WorldSavedData {
 
     public void remove(UUID id) {
         if (entries.remove(id) != null) markDirty();
+    }
+
+    public List<NBTTagCompound> restorationOrder() {
+        List<NBTTagCompound> ordered = new ArrayList<>(entries.values());
+        ordered.sort(Comparator.comparing(entry -> !entry.getBoolean("active")));
+        return ordered;
     }
 
     @Override

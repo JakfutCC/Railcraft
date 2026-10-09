@@ -61,7 +61,9 @@ import mods.railcraft.common.util.network.PacketHandler;
         name = "Railcraft",
         version = Railcraft.VERSION,
         acceptedMinecraftVersions = "[1.7.10,1.8)",
-        dependencies = "required-after:Forge@[10.13.4.1614,);" + "after:BuildCraft|Core[6.1.7,);"
+        dependencies = "required-after:Forge@[10.13.4.1614,);" + "required-after:unimixins;"
+                + "after:navigator@[1.1.10,);"
+                + "after:BuildCraft|Core[6.1.7,);"
                 + "after:BuildCraft|Energy;"
                 + "after:BuildCraft|Builders;"
                 + "after:BuildCraft|Factory;"

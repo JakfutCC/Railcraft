@@ -102,7 +102,8 @@ public final class AnchorManager {
 
     public boolean canAcquire(TileAnchorWorld anchor) {
         if (evicting.contains(anchor.getWorldObj().provider.dimensionId)) return false;
-        return anchor.volumeAllowed() && AnchorBudgets.permits(anchor, anchor.getCubeCost(), anchors.values());
+        return AnchorLoading.ticketsAvailable(anchor.getWorldObj()) && anchor.volumeAllowed()
+                && AnchorBudgets.permits(anchor, anchor.getCubeCost(), anchors.values());
     }
 
     public void restore(Ticket ticket) {
@@ -116,7 +117,7 @@ public final class AnchorManager {
         // On-demand dimensions can be opened during a tick, after ServerTick.START has already run.
         if (started && event.world instanceof WorldServer world) {
             AnchorIndex index = AnchorIndex.get();
-            for (NBTTagCompound entry : new ArrayList<>(index.entries.values())) {
+            for (NBTTagCompound entry : index.restorationOrder()) {
                 if (entry.getInteger("dim") != world.provider.dimensionId || !entry.getBoolean("restore")) continue;
                 if (entry.getString("type").equals(EnumMachineAlpha.PERSONAL_ANCHOR.getTag())
                         && !isOwnerOnline(PlayerPlugin.readOwnerFromNBT(entry)))
@@ -170,7 +171,7 @@ public final class AnchorManager {
         Set<Integer> worlds = new HashSet<>(pendingWorlds);
         pendingWorlds.clear();
         if (starting || !entering.isEmpty() || !worlds.isEmpty())
-            for (NBTTagCompound entry : new ArrayList<>(index.entries.values())) {
+            for (NBTTagCompound entry : index.restorationOrder()) {
                 if (!entry.getBoolean("restore")) continue;
                 boolean personal = entry.getString("type").equals(EnumMachineAlpha.PERSONAL_ANCHOR.getTag());
                 if (personal && !isOwnerOnline(PlayerPlugin.readOwnerFromNBT(entry))) continue;
@@ -201,9 +202,30 @@ public final class AnchorManager {
             AnchorMapRequests.respond();
             for (TileAnchorWorld anchor : new ArrayList<>(anchors.values())) {
                 index.update(anchor);
-                if (anchor.hasActiveTicket() && !canAcquire(anchor)) anchor.releaseTicket();
+                if (anchor.hasActiveTicket() && !canAcquire(anchor)) anchor.pauseForBudget();
             }
+            if (ticks % 200 == 0) retryBudgetAnchors(index);
             checkIdleDimensions();
+        }
+    }
+
+    private void retryBudgetAnchors(AnchorIndex index) {
+        for (NBTTagCompound entry : index.restorationOrder()) {
+            if (!entry.getBoolean("restore") || !entry.getBoolean("waitingForBudget")) continue;
+            UUID id = UUID.fromString(entry.getString("id"));
+            if (isActive(id)) continue;
+            GameProfile owner = PlayerPlugin.readOwnerFromNBT(entry);
+            if (entry.getString("type").equals(EnumMachineAlpha.PERSONAL_ANCHOR.getTag()) && !isOwnerOnline(owner))
+                continue;
+            if (!AnchorBudgets.permits(id, owner, entry.getInteger("cost"), anchors.values())) continue;
+            int dim = entry.getInteger("dim");
+            if (!DimensionManager.isDimensionRegistered(dim)) continue;
+            WorldServer world = DimensionManager.getWorld(dim);
+            if (world == null) {
+                DimensionManager.initDimension(dim);
+                world = DimensionManager.getWorld(dim);
+            }
+            if (world != null) restoreEntry(world, entry, index);
         }
     }
 
@@ -275,10 +297,12 @@ public final class AnchorManager {
     /** Runs at Forge's per-world unload boundary, after portals, logins and other world ticks. */
     public WorldServer beginEviction(WorldServer world) {
         if (world == null || !requestedEvictions.remove(world.provider.dimensionId, world)) return world;
+        // Restart the grace period even on failure, avoiding a full save attempt every second.
+        idleSince.put(world.provider.dimensionId, ticks);
         if (!mayEvict(world)) return null;
         try {
             world.saveAllChunks(true, null);
-        } catch (net.minecraft.world.MinecraftException error) {
+        } catch (Exception error) {
             Game.log(Level.ERROR, "Not evicting dimension {0}: saving failed: {1}", world.provider.dimensionId, error);
             return null;
         }

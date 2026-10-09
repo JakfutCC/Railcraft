@@ -36,7 +36,7 @@ public final class AnchorMapLayer extends InteractableLayerManager {
 
             @Override
             public ResourceLocation getIcon(SupportedMods mod, String theme) {
-                return new ResourceLocation("railcraft", "textures/blocks/anchor.world.png");
+                return new ResourceLocation("railcraft", "textures/items/cart.anchor.png");
             }
 
             @Override

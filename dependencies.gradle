@@ -3,7 +3,7 @@
 dependencies {
     compileOnly("com.github.GTNewHorizons:Navigator:1.1.10:dev") { transitive = false }
     compileOnly("com.github.GTNewHorizons:ServerUtilities:2.4.14:dev") { transitive = false }
-    compileOnly("com.cardinalstar.cubicchunks:CubicChunks1710:v0.1.21-alpha-pre:dev") { transitive = false }
+    compileOnly("com.cardinalstar.cubicchunks:CubicChunks1710:v0.1.24-alpha:dev") { transitive = false }
     compileOnly("com.github.GTNewHorizons:BuildCraft:7.1.63:dev")
     implementation("net.industrial-craft:industrialcraft-2:2.2.828-experimental:dev")
     implementation("thaumcraft:Thaumcraft:1.7.10-4.2.3.5:dev")
