@@ -18,9 +18,9 @@ import mods.railcraft.common.blocks.machine.alpha.TileAnchorWorld;
 import mods.railcraft.common.core.RailcraftConfig;
 import mods.railcraft.common.core.RailcraftConstants;
 import mods.railcraft.common.gui.slots.SlotStackFilter;
-import mods.railcraft.common.plugins.forge.PlayerPlugin;
 import mods.railcraft.common.util.anchors.AnchorLoading;
 import mods.railcraft.common.util.misc.IAnchor;
+import mods.railcraft.common.util.network.PacketBuilder;
 
 public class ContainerAnchor extends RailcraftContainer {
 
@@ -30,6 +30,9 @@ public class ContainerAnchor extends RailcraftContainer {
     public final int[] extents = new int[6];
     public int cubeCount, maxExtent;
     public boolean active, cubic;
+    public String loadingStatus = "";
+    private final int[] previousState = new int[10];
+    private String previousStatus;
 
     public ContainerAnchor(InventoryPlayer inventoryplayer, IAnchor a) {
         super(a);
@@ -58,6 +61,11 @@ public class ContainerAnchor extends RailcraftContainer {
     public void addCraftingToCrafters(ICrafting icrafting) {
         super.addCraftingToCrafters(icrafting);
         icrafting.sendProgressBarUpdate(this, 0, getMinutesRemaining(anchor.getAnchorFuel()));
+        if (anchor instanceof TileAnchorWorld tile) {
+            int[] state = state(tile);
+            for (int i = 0; i < state.length; i++) icrafting.sendProgressBarUpdate(this, i + 1, state[i]);
+            PacketBuilder.instance().sendGuiStringPacket(icrafting, windowId, 0, tile.getLoadingStatus());
+        }
     }
 
     private short getMinutesRemaining(long fuel) {
@@ -71,21 +79,37 @@ public class ContainerAnchor extends RailcraftContainer {
     public void sendUpdateToClient() {
         super.sendUpdateToClient();
         short mins = getMinutesRemaining(anchor.getAnchorFuel());
+        int[] state = anchor instanceof TileAnchorWorld tile ? state(tile) : null;
+        String status = anchor instanceof TileAnchorWorld tile ? tile.getLoadingStatus() : "";
 
         for (int var1 = 0; var1 < this.crafters.size(); ++var1) {
             ICrafting var2 = (ICrafting) this.crafters.get(var1);
 
             if (this.prevMinutesRemaining != mins) var2.sendProgressBarUpdate(this, 0, mins);
-            if (anchor instanceof TileAnchorWorld tile) {
-                for (int i = 0; i < 6; i++) var2.sendProgressBarUpdate(this, i + 1, tile.getExtent(i));
-                var2.sendProgressBarUpdate(this, 7, (int) Math.min(32767, tile.getVolume().size()));
-                var2.sendProgressBarUpdate(this, 8, tile.hasActiveTicket() ? 1 : 0);
-                var2.sendProgressBarUpdate(this, 9, AnchorLoading.isCubic(tile.getWorldObj()) ? 1 : 0);
-                var2.sendProgressBarUpdate(this, 10, RailcraftConfig.anchorMaxExtent);
+            if (state != null) {
+                for (int i = 0; i < state.length; i++)
+                    if (state[i] != previousState[i]) var2.sendProgressBarUpdate(this, i + 1, state[i]);
+                if (!status.equals(previousStatus))
+                    PacketBuilder.instance().sendGuiStringPacket(var2, windowId, 0, status);
             }
         }
 
         this.prevMinutesRemaining = mins;
+        if (state != null) System.arraycopy(state, 0, previousState, 0, state.length);
+        previousStatus = status;
+    }
+
+    private int[] state(TileAnchorWorld tile) {
+        return new int[] { tile.getExtent(0), tile.getExtent(1), tile.getExtent(2), tile.getExtent(3),
+                tile.getExtent(4), tile.getExtent(5), (int) Math.min(32767, tile.getVolume().size()),
+                tile.hasActiveTicket() ? 1 : 0, AnchorLoading.isCubic(tile.getWorldObj()) ? 1 : 0,
+                RailcraftConfig.anchorMaxExtent };
+    }
+
+    @Override
+    @SideOnly(Side.CLIENT)
+    public void updateString(byte id, String data) {
+        if (id == 0) loadingStatus = data;
     }
 
     @Override
@@ -101,8 +125,8 @@ public class ContainerAnchor extends RailcraftContainer {
 
     @Override
     public boolean canInteractWith(EntityPlayer player) {
-        return super.canInteractWith(player) && (!(anchor instanceof TileAnchorWorld tile) || player.worldObj.isRemote
-                || PlayerPlugin.isOwnerOrOp(tile.getOwner(), player));
+        return super.canInteractWith(player)
+                && (!(anchor instanceof TileAnchorWorld tile) || player.worldObj.isRemote || tile.canConfigure(player));
     }
 
     @Override

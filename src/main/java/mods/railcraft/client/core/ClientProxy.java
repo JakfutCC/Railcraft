@@ -142,6 +142,7 @@ public class ClientProxy extends CommonProxy {
 
     @Override
     public void initClient() {
+        if (cpw.mods.fml.common.Loader.isModLoaded("navigator")) mods.railcraft.client.gui.AnchorMapLayer.init();
         SoundRegistry.setupBlockSounds();
 
         FMLCommonHandler.instance().bus().register(LocomotiveKeyHandler.INSTANCE);

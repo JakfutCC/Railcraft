@@ -83,7 +83,7 @@ public class GuiWorldAnchor extends TileGui {
         int sWidth = fontRendererObj.getStringWidth(label);
         int sPos = xSize / 2 - sWidth / 2;
         fontRendererObj.drawString(label, sPos, 6, 0x404040);
-        fontRendererObj.drawString(container.active ? "Active" : "Inactive", 32, 24, 0x404040);
+        fontRendererObj.drawString(fontRendererObj.trimStringToWidth(container.loadingStatus, 136), 32, 24, 0x404040);
         fontRendererObj.drawString(
                 LocalizationPlugin
                         .translate("railcraft.gui.anchor.fuel.remaining", (double) container.minutesRemaining / 60),
@@ -97,5 +97,8 @@ public class GuiWorldAnchor extends TileGui {
                     .drawString(names[i] + ":" + container.extents[i], 29 + (i % 2) * 84, 62 + (i / 2) * 23, 0x404040);
         }
         fontRendererObj.drawString(StatCollector.translateToLocal("container.inventory"), 8, 148, 0x404040);
+        int x = mouseX - guiLeft, y = mouseY - guiTop;
+        if (x >= 32 && x < 168 && y >= 24 && y < 34)
+            drawHoveringText(java.util.Collections.singletonList(container.loadingStatus), x, y, fontRendererObj);
     }
 }

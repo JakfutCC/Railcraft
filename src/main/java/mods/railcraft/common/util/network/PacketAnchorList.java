@@ -6,7 +6,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-import net.minecraft.client.Minecraft;
 import net.minecraft.nbt.NBTTagCompound;
 
 import cpw.mods.fml.relauncher.Side;
@@ -17,9 +16,10 @@ import mods.railcraft.client.gui.GuiAnchorList;
 public final class PacketAnchorList extends RailcraftPacket {
 
     public static final int PAGE_SIZE = 6;
+    public static final int MAP_SIZE = 128;
     private List<NBTTagCompound> entries;
     private int page, pages;
-    private boolean all;
+    private boolean all, map;
 
     public PacketAnchorList() {}
 
@@ -28,6 +28,12 @@ public final class PacketAnchorList extends RailcraftPacket {
         this.page = page;
         this.pages = pages;
         this.all = all;
+    }
+
+    public static PacketAnchorList map(List<NBTTagCompound> entries, boolean truncated) {
+        PacketAnchorList packet = new PacketAnchorList(entries, 0, 1, truncated);
+        packet.map = true;
+        return packet;
     }
 
     @Override
@@ -40,6 +46,7 @@ public final class PacketAnchorList extends RailcraftPacket {
         data.writeInt(page);
         data.writeInt(pages);
         data.writeBoolean(all);
+        data.writeBoolean(map);
         data.writeInt(entries.size());
         for (NBTTagCompound entry : entries) {
             data.writeUTF(entry.getString("type"));
@@ -57,8 +64,9 @@ public final class PacketAnchorList extends RailcraftPacket {
     public void readData(DataInputStream data) throws IOException {
         int page = data.readInt(), pages = data.readInt();
         boolean all = data.readBoolean();
+        boolean map = data.readBoolean();
         int count = data.readInt();
-        if (count < 0 || count > PAGE_SIZE || page < 0 || pages < 1 || page >= pages)
+        if (count < 0 || count > (map ? MAP_SIZE : PAGE_SIZE) || page < 0 || pages < 1 || page >= pages)
             throw new IOException("Invalid anchor page");
         List<NBTTagCompound> entries = new ArrayList<>();
         for (int i = 0; i < count; i++) {
@@ -73,7 +81,7 @@ public final class PacketAnchorList extends RailcraftPacket {
             entry.setBoolean("active", data.readBoolean());
             entries.add(entry);
         }
-        Minecraft.getMinecraft().func_152344_a(
-                () -> Minecraft.getMinecraft().displayGuiScreen(new GuiAnchorList(entries, page, pages, all)));
+        if (map) GuiAnchorList.updateMap(entries, all);
+        else GuiAnchorList.open(entries, page, pages, all);
     }
 }

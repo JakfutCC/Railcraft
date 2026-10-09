@@ -21,12 +21,13 @@ import net.minecraftforge.event.world.WorldEvent;
 
 import org.apache.logging.log4j.Level;
 
+import com.mojang.authlib.GameProfile;
+
 import cpw.mods.fml.common.eventhandler.EventPriority;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import mods.railcraft.common.blocks.machine.alpha.EnumMachineAlpha;
-import mods.railcraft.common.blocks.machine.alpha.TileAnchorAdmin;
 import mods.railcraft.common.blocks.machine.alpha.TileAnchorPassive;
 import mods.railcraft.common.blocks.machine.alpha.TileAnchorPersonal;
 import mods.railcraft.common.blocks.machine.alpha.TileAnchorWorld;
@@ -43,19 +44,24 @@ public final class AnchorManager {
     private final List<Ticket> pendingTickets = new ArrayList<>();
     private final Set<Integer> pendingWorlds = new HashSet<>();
     private final Set<Integer> evicting = new HashSet<>();
+    private final Map<Integer, WorldServer> requestedEvictions = new HashMap<>();
+    private final Set<WorldServer> savedEvictions = new HashSet<>();
     private final Map<Integer, Long> idleSince = new HashMap<>();
     private boolean started;
-    private boolean login;
+    private final List<GameProfile> logins = new ArrayList<>();
     private long ticks;
 
     public void reset() {
+        AnchorMapRequests.clear();
         anchors.clear();
         pendingTickets.clear();
         pendingWorlds.clear();
         evicting.clear();
+        requestedEvictions.clear();
+        savedEvictions.clear();
         idleSince.clear();
         started = false;
-        login = false;
+        logins.clear();
         ticks = 0;
     }
 
@@ -78,7 +84,17 @@ public final class AnchorManager {
         return anchor != null && !anchor.isInvalid() && anchor.hasActiveTicket();
     }
 
+    public static boolean isOwnerOnline(GameProfile owner) {
+        for (Object value : net.minecraft.server.MinecraftServer.getServer()
+                .getConfigurationManager().playerEntityList) {
+            net.minecraft.entity.player.EntityPlayer player = (net.minecraft.entity.player.EntityPlayer) value;
+            if (PlayerPlugin.isSamePlayer(owner, player.getGameProfile())) return true;
+        }
+        return false;
+    }
+
     public void remove(TileAnchorWorld anchor) {
+        if (anchor.getWorldObj().isRemote) return;
         anchors.remove(anchor.getUUID());
         AnchorIndex index = AnchorIndex.get();
         if (index != null) index.remove(anchor.getUUID());
@@ -86,9 +102,7 @@ public final class AnchorManager {
 
     public boolean canAcquire(TileAnchorWorld anchor) {
         if (evicting.contains(anchor.getWorldObj().provider.dimensionId)) return false;
-        long cost = anchor.getCubeCost();
-        if (cost > 32768 || !(anchor instanceof TileAnchorAdmin) && cost > RailcraftConfig.anchorMaxCubes) return false;
-        return AnchorBudgets.permits(anchor, cost, anchors.values());
+        return anchor.volumeAllowed() && AnchorBudgets.permits(anchor, anchor.getCubeCost(), anchors.values());
     }
 
     public void restore(Ticket ticket) {
@@ -105,7 +119,7 @@ public final class AnchorManager {
             for (NBTTagCompound entry : new ArrayList<>(index.entries.values())) {
                 if (entry.getInteger("dim") != world.provider.dimensionId || !entry.getBoolean("restore")) continue;
                 if (entry.getString("type").equals(EnumMachineAlpha.PERSONAL_ANCHOR.getTag())
-                        && !PlayerPlugin.isPlayerConnected(PlayerPlugin.readOwnerFromNBT(entry)))
+                        && !isOwnerOnline(PlayerPlugin.readOwnerFromNBT(entry)))
                     continue;
                 restoreEntry(world, entry, index);
             }
@@ -126,6 +140,8 @@ public final class AnchorManager {
         pendingWorlds.remove(dim);
         idleSince.remove(dim);
         evicting.remove(dim);
+        requestedEvictions.remove(dim);
+        savedEvictions.remove(event.world);
         pendingTickets.removeIf(ticket -> ticket.world == event.world);
         anchors.values().removeIf(anchor -> {
             if (anchor.getWorldObj() != event.world) return false;
@@ -136,7 +152,7 @@ public final class AnchorManager {
 
     @SubscribeEvent
     public void playerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
-        login = true;
+        logins.add(event.player.getGameProfile());
     }
 
     @SubscribeEvent(priority = EventPriority.HIGHEST)
@@ -145,26 +161,30 @@ public final class AnchorManager {
         ticks++;
         AnchorIndex index = AnchorIndex.get();
         if (index == null) return;
-        boolean startOrLogin = !started || login;
+        boolean starting = !started;
         started = true;
-        login = false;
+        List<GameProfile> entering = new ArrayList<>(logins);
+        logins.clear();
 
         // Complete all restoration before world ticks and AE2's ServerTick.END tile-ready queue.
         Set<Integer> worlds = new HashSet<>(pendingWorlds);
         pendingWorlds.clear();
-        for (NBTTagCompound entry : new ArrayList<>(index.entries.values())) {
-            if (!entry.getBoolean("restore")) continue;
-            boolean personal = entry.getString("type").equals(EnumMachineAlpha.PERSONAL_ANCHOR.getTag());
-            if (personal && !PlayerPlugin.isPlayerConnected(PlayerPlugin.readOwnerFromNBT(entry))) continue;
-            int dim = entry.getInteger("dim");
-            if (!startOrLogin && !worlds.contains(dim)) continue;
-            WorldServer world = DimensionManager.getWorld(dim);
-            if (world == null && startOrLogin && DimensionManager.isDimensionRegistered(dim)) {
-                DimensionManager.initDimension(dim);
-                world = DimensionManager.getWorld(dim);
+        if (starting || !entering.isEmpty() || !worlds.isEmpty())
+            for (NBTTagCompound entry : new ArrayList<>(index.entries.values())) {
+                if (!entry.getBoolean("restore")) continue;
+                boolean personal = entry.getString("type").equals(EnumMachineAlpha.PERSONAL_ANCHOR.getTag());
+                if (personal && !isOwnerOnline(PlayerPlugin.readOwnerFromNBT(entry))) continue;
+                int dim = entry.getInteger("dim");
+                boolean ownerEntered = personal && entering.stream()
+                        .anyMatch(profile -> PlayerPlugin.isSamePlayer(profile, PlayerPlugin.readOwnerFromNBT(entry)));
+                if (!starting && !ownerEntered && !worlds.contains(dim)) continue;
+                WorldServer world = DimensionManager.getWorld(dim);
+                if (world == null && (starting || ownerEntered) && DimensionManager.isDimensionRegistered(dim)) {
+                    DimensionManager.initDimension(dim);
+                    world = DimensionManager.getWorld(dim);
+                }
+                if (world != null) restoreEntry(world, entry, index);
             }
-            if (world != null) restoreEntry(world, entry, index);
-        }
         while (!pendingTickets.isEmpty()) {
             List<Ticket> tickets = new ArrayList<>(pendingTickets);
             pendingTickets.clear();
@@ -178,6 +198,7 @@ public final class AnchorManager {
             }
         }
         if (ticks % 20 == 0) {
+            AnchorMapRequests.respond();
             for (TileAnchorWorld anchor : new ArrayList<>(anchors.values())) {
                 index.update(anchor);
                 if (anchor.hasActiveTicket() && !canAcquire(anchor)) anchor.releaseTicket();
@@ -242,26 +263,52 @@ public final class AnchorManager {
 
     public boolean evict(WorldServer world) {
         if (!mayEvict(world)) return false;
-        try {
-            // Check saving succeeds before handing off to Forge's ordinary save/event/flush unload path.
-            world.saveAllChunks(true, null);
-        } catch (net.minecraft.world.MinecraftException error) {
-            Game.log(Level.ERROR, "Not evicting dimension {0}: saving failed: {1}", world.provider.dimensionId, error);
-            return false;
-        }
-        evicting.add(world.provider.dimensionId);
-        for (TileAnchorWorld anchor : anchors.values()) {
-            if (anchor.getWorldObj() == world) anchor.releaseTicket();
-        }
-        DimensionManager.unloadWorld(world.provider.dimensionId);
-        Game.log(Level.INFO, "Queued idle dimension {0} for normal Forge unload", world.provider.dimensionId);
+        requestedEvictions.put(world.provider.dimensionId, world);
         return true;
     }
 
+    public void enqueueEvictions() {
+        requestedEvictions.values().removeIf(world -> DimensionManager.getWorld(world.provider.dimensionId) != world);
+        for (int dim : requestedEvictions.keySet()) DimensionManager.unloadWorld(dim);
+    }
+
+    /** Runs at Forge's per-world unload boundary, after portals, logins and other world ticks. */
+    public WorldServer beginEviction(WorldServer world) {
+        if (world == null || !requestedEvictions.remove(world.provider.dimensionId, world)) return world;
+        if (!mayEvict(world)) return null;
+        try {
+            world.saveAllChunks(true, null);
+        } catch (net.minecraft.world.MinecraftException error) {
+            Game.log(Level.ERROR, "Not evicting dimension {0}: saving failed: {1}", world.provider.dimensionId, error);
+            return null;
+        }
+        // Save-event listeners may acquire loaders or move a player. Recheck before releasing our tickets.
+        if (!mayEvict(world)) return null;
+        evicting.add(world.provider.dimensionId);
+        for (TileAnchorWorld anchor : new ArrayList<>(anchors.values())) {
+            if (anchor.getWorldObj() == world) anchor.releaseTicket();
+        }
+        if (!mayEvict(world)) {
+            evicting.remove(world.provider.dimensionId);
+            return null;
+        }
+        savedEvictions.add(world);
+        Game.log(Level.INFO, "Queued idle dimension {0} for normal Forge unload", world.provider.dimensionId);
+        return world;
+    }
+
+    public boolean consumeEvictionSave(WorldServer world) {
+        return savedEvictions.remove(world);
+    }
+
     private void checkIdleDimensions() {
+        Set<Integer> managedDimensions = new HashSet<>();
+        AnchorIndex index = AnchorIndex.get();
+        if (index != null)
+            for (NBTTagCompound entry : index.entries.values()) managedDimensions.add(entry.getInteger("dim"));
         for (WorldServer world : DimensionManager.getWorlds()) {
             int dim = world.provider.dimensionId;
-            boolean managed = RailcraftConfig.anchorWatchdog;
+            boolean managed = RailcraftConfig.anchorWatchdog || managedDimensions.contains(dim);
             for (TileAnchorWorld anchor : anchors.values()) {
                 if (anchor.getWorldObj() == world
                         && (anchor instanceof TileAnchorPassive || anchor instanceof TileAnchorPersonal))

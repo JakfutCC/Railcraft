@@ -72,6 +72,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     private boolean hasTicket;
     private boolean refreshTicket;
     private boolean powered;
+    private int retryDelay;
 
     public TileAnchorWorld() {
         super(1);
@@ -79,7 +80,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
 
     @Override
     public int getSizeInventory() {
-        return needsFuel() ? 1 : 0;
+        return this instanceof TileAnchorAdmin ? 0 : 1;
     }
 
     @Override
@@ -95,7 +96,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
 
     @Override
     public boolean blockActivated(EntityPlayer player, int side) {
-        if (Game.isHost(worldObj) && !PlayerPlugin.isOwnerOrOp(getOwner(), player)) return false;
+        if (Game.isHost(worldObj) && !canConfigure(player)) return false;
         ItemStack current = player.getCurrentEquippedItem();
         if (current != null && current.getItem() instanceof IToolCrowbar crowbar) {
             if (crowbar.canWhack(player, current, xCoord, yCoord, zCoord)) {
@@ -125,7 +126,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
 
     @Override
     public boolean openGui(EntityPlayer player) {
-        if (!Game.isHost(worldObj) || PlayerPlugin.isOwnerOrOp(getOwner(), player)) {
+        if (!Game.isHost(worldObj) || canConfigure(player)) {
             GuiHandler.openGui(EnumGui.WORLD_ANCHOR, player, worldObj, xCoord, yCoord, zCoord);
             return true;
         }
@@ -136,6 +137,11 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
         Ticket ticket = getTicket();
         if (ticket == null) return MAX_CHUNKS;
         return Math.min(ticket.getMaxChunkListDepth(), MAX_CHUNKS);
+    }
+
+    public boolean canConfigure(EntityPlayer player) {
+        return PlayerPlugin.isSamePlayer(getOwner(), player.getGameProfile())
+                || PlayerPlugin.isPlayerOp(player.getGameProfile());
     }
 
     public static TileEntity getTargetAt(EntityPlayer player, RailcraftTileEntity searcher, WorldCoordinate coord) {
@@ -150,7 +156,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     }
 
     public boolean setSentinel(EntityPlayer player, WorldCoordinate coord) {
-        if (!PlayerPlugin.isOwnerOrOp(getOwner(), player)) return false;
+        if (!canConfigure(player)) return false;
         TileEntity tile = getTargetAt(player, this, coord);
         if (tile == null) return false;
         if (tile instanceof TileSentinel) {
@@ -278,7 +284,8 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
                 clearSentinel();
         }
 
-        if (!hasActiveTicket()) requestTicket();
+        if (retryDelay > 0) retryDelay--;
+        if (!hasActiveTicket() && retryDelay == 0) requestTicket();
 
         if (RailcraftConfig.printAnchorDebug() && hasActiveTicket()) if (clock % 64 == 0) {
             int numChunks = chunks == null ? 0 : chunks.size();
@@ -308,6 +315,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     @Override
     public void onBlockRemoval() {
         super.onBlockRemoval();
+        if (Game.isNotHost(worldObj)) return;
         releaseTicket();
         AnchorManager.INSTANCE.remove(this);
     }
@@ -325,20 +333,27 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     }
 
     public void releaseTicket() {
+        if (Game.isNotHost(worldObj)) return;
         refreshTicket = false;
         setTicket(null);
     }
 
     protected void requestTicket() {
         if (hasActiveTicket()) return;
+        retryDelay = 20;
         loadingStatus = powered ? "Redstone disabled" : "No fuel or owner offline";
-        if (meetsTicketRequirements() && AnchorManager.INSTANCE.canAcquire(this)) {
+        if (!meetsTicketRequirements()) return;
+        if (!volumeAllowed()) {
+            loadingStatus = "Area exceeds loading limit";
+            return;
+        }
+        if (AnchorManager.INSTANCE.canAcquire(this)) {
             Ticket chunkTicket = getTicketFromForge();
             if (chunkTicket != null) {
                 setTicketData(chunkTicket);
                 forceChunkLoading(chunkTicket);
             } else loadingStatus = "Forge ticket limit";
-        } else if (meetsTicketRequirements()) loadingStatus = "Volume or owner budget exceeded";
+        } else loadingStatus = "Owner/rank budget exceeded";
     }
 
     public boolean needsFuel() {
@@ -444,20 +459,23 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     }
 
     public void setExtents(int[] values) {
+        if (Game.isNotHost(worldObj)) return;
         if (values.length != 6) return;
         for (int value : values) if (value < 0 || value > RailcraftConfig.anchorMaxExtent) return;
         int[] old = extents.clone();
         boolean oldSentinel = sentinel;
         sentinel = false;
         System.arraycopy(values, 0, extents, 0, 6);
-        if (getCubeCost() > 32768
-                || !(this instanceof TileAnchorAdmin) && getCubeCost() > RailcraftConfig.anchorMaxCubes) {
+        if (!volumeAllowed()) {
             System.arraycopy(old, 0, extents, 0, 6);
             sentinel = oldSentinel;
+            loadingStatus = "Requested area exceeds limit";
             return;
         }
         sentinel = false;
-        refreshTicket = true;
+        releaseTicket();
+        retryDelay = 10;
+        loadingStatus = "Applying area";
         markDirty();
         sendUpdateToClient();
     }
@@ -483,6 +501,14 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
 
     public long getCubeCost() {
         return getVolume().size() * (AnchorLoading.isCubic(worldObj) ? 1 : 16);
+    }
+
+    public boolean volumeAllowed() {
+        if (!sentinel) for (int extent : extents) if (extent > RailcraftConfig.anchorMaxExtent) return false;
+        long cost = getCubeCost();
+        if (cost > 32768 || !(this instanceof TileAnchorAdmin) && cost > RailcraftConfig.anchorMaxCubes) return false;
+        int limit = AnchorLoading.ticketLimit(worldObj);
+        return limit <= 0 || getVolume().size() <= limit;
     }
 
     public String getLoadingStatus() {
@@ -602,13 +628,16 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
 
     @Override
     public int[] getAccessibleSlotsFromSide(int var1) {
-        if (RailcraftConfig.anchorsCanInteractWithPipes()) return SLOTS;
+        if (getSizeInventory() > 0 && needsFuel() && RailcraftConfig.anchorsCanInteractWithPipes()) return SLOTS;
         return SLOTS_NO_ACCESS;
     }
 
     @Override
     public boolean canInsertItem(int i, ItemStack itemstack, int j) {
-        return RailcraftConfig.anchorsCanInteractWithPipes();
+        return i == 0 && getSizeInventory() > 0
+                && needsFuel()
+                && RailcraftConfig.anchorsCanInteractWithPipes()
+                && getFuelMap().containsKey(itemstack);
     }
 
     @Override

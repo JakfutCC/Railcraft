@@ -19,6 +19,7 @@ import com.cardinalstar.cubicchunks.world.core.ICubicTicketInternal;
 import com.cardinalstar.cubicchunks.world.cube.Cube;
 
 import cpw.mods.fml.common.Loader;
+import mods.railcraft.common.core.Railcraft;
 
 /** Optional CC types stay inside the lazily linked adapter. Never force 2D columns in CC. */
 public final class AnchorLoading {
@@ -39,6 +40,10 @@ public final class AnchorLoading {
 
     public static int ticketLimit(Ticket ticket) {
         return isCubic(ticket.world) ? Cubic.limit(ticket) : ticket.getMaxChunkListDepth();
+    }
+
+    public static int ticketLimit(World world) {
+        return isCubic(world) ? Cubic.defaultLimit() : ForgeChunkManager.getMaxChunkDepthFor(Railcraft.MOD_ID);
     }
 
     public static void loadBlock(World world, int x, int y, int z) {
@@ -82,6 +87,10 @@ public final class AnchorLoading {
 
         static int limit(Ticket ticket) {
             return ((ICubicTicketInternal) ticket).getMaxCubeDepth();
+        }
+
+        static int defaultLimit() {
+            return CubicChunkManager.getCubeDepthFor(Railcraft.MOD_ID);
         }
 
         static void load(World world, int x, int y, int z) {

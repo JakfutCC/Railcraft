@@ -37,6 +37,7 @@ public abstract class RailcraftPacket {
         KEY_PRESS,
         GOLDEN_TICKET_GUI,
         ANCHOR_LIST,
+        ANCHOR_MAP_REQUEST,
     }
 
     public FMLProxyPacket getPacket() {

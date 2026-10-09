@@ -11,6 +11,19 @@ import mods.railcraft.client.render.AnchorOverlay;
 
 public final class GuiAnchorList extends GuiScreen {
 
+    public static void updateMap(List<NBTTagCompound> entries, boolean truncated) {
+        if (!cpw.mods.fml.common.Loader.isModLoaded("navigator")) return;
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+        net.minecraft.world.World world = mc.theWorld;
+        mc.func_152344_a(
+                () -> { if (world != null && mc.theWorld == world) AnchorMapLayer.receive(entries, truncated); });
+    }
+
+    public static void open(List<NBTTagCompound> entries, int page, int pages, boolean all) {
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getMinecraft();
+        mc.func_152344_a(() -> mc.displayGuiScreen(new GuiAnchorList(entries, page, pages, all)));
+    }
+
     private final List<NBTTagCompound> entries;
     private final int page, pages;
     private final boolean all;

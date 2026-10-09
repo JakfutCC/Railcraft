@@ -116,6 +116,10 @@ public class PacketHandler {
                     if (player != null) return;
                     pkt = new PacketAnchorList();
                     break;
+                case ANCHOR_MAP_REQUEST:
+                    if (player == null) return;
+                    pkt = new PacketAnchorMapRequest(player);
+                    break;
                 default:
                     return;
             }

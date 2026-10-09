@@ -14,6 +14,7 @@ import mods.railcraft.common.core.Railcraft;
 import mods.railcraft.common.core.RailcraftConfig;
 import mods.railcraft.common.core.RailcraftConstants;
 import mods.railcraft.common.plugins.forge.PlayerPlugin;
+import mods.railcraft.common.util.anchors.AnchorManager;
 import mods.railcraft.common.util.collections.ItemMap;
 import mods.railcraft.common.util.misc.Game;
 
@@ -46,13 +47,13 @@ public class TileAnchorPersonal extends TileAnchorWorld {
 
     @Override
     protected boolean meetsTicketRequirements() {
-        return PlayerPlugin.isPlayerConnected(getOwner()) && super.meetsTicketRequirements();
+        return AnchorManager.isOwnerOnline(getOwner()) && super.meetsTicketRequirements();
     }
 
     @Override
     public void updateEntity() {
         if (Game.isHost(worldObj) && hasActiveTicket()) {
-            if (PlayerPlugin.isPlayerConnected(getOwner())) ticksSincePlayerLogged = 0;
+            if (AnchorManager.isOwnerOnline(getOwner())) ticksSincePlayerLogged = 0;
             else ticksSincePlayerLogged++;
             if (ticksSincePlayerLogged > RailcraftConstants.TICKS_PER_MIN * MINUTES_BEFORE_DISABLE) releaseTicket();
         }

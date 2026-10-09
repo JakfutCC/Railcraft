@@ -25,6 +25,12 @@ buttons. `/rcanchors all` is the operator view; an optional page number selects
 another page. `/rcanchors evict <dimension>` is operator-only and retains the
 same safety checks as automatic cleanup. Listing does not load the listed worlds.
 
+With Navigator installed, the Railcraft anchors layer shows the owner's areas
+as X/Z footprints, with the loaded Y range in each tooltip. These are not claims
+or full-column loading requests. Snapshots refresh every two seconds, do not load
+terrain, and show at most 128 anchors in the viewport; zoom in if the tooltip
+reports truncation. The administrator list still provides all owners and dimensions.
+
 ## Server settings
 
 All settings are in the `anchors` category of `railcraft.cfg`:
@@ -47,6 +53,18 @@ Fuel duration uses the existing configured hours at a reference area of 144 cube
 retained when changing the area, breaking/replacing the anchor or reloading.
 Changing the permitted fuel items, such as adding ender pearls to World anchors,
 uses the existing `world.fuel`, `personal.fuel` and `passive.fuel` lists.
+
+Rank integration is enabled by default. Anchors over the team's budget, and
+anchors whose owner is unknown to SU, remain inactive. This can disable existing
+anchors when upgrading; change the rank budget or explicitly disable the rank
+integration if the server wants the fallback owner budget. The GUI reports refusals.
+Range edits are debounced, and fuel slot layouts do not depend on client fuel config.
+
+CC requires the companion cube-ticket lifecycle fix: registration of the Forge
+ticket accessor, tracking requested cubes and releasing them with the ticket.
+Unpatched CC builds have a broken force-cube API. The server-only Forge unload
+boundary mixin rechecks players, saving and external tickets immediately before
+an anchor-requested eviction; it preserves normal unload events for AE2 cleanup.
 
 Claims remain ServerUtilities' two-dimensional ownership regions. This patch
 does not convert SU claim-based loading, anchor carts or other mods' loaders to
