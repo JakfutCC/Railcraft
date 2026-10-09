@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Set;
 
 import net.minecraft.entity.Entity;
-import net.minecraft.tileentity.TileEntity;
 import net.minecraft.world.ChunkCoordIntPair;
 import net.minecraft.world.World;
 import net.minecraftforge.common.ForgeChunkManager;
@@ -27,7 +26,6 @@ import com.google.common.collect.ListMultimap;
 
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import mods.railcraft.common.blocks.machine.alpha.EnumMachineAlpha;
-import mods.railcraft.common.blocks.machine.alpha.TileAnchorWorld;
 import mods.railcraft.common.carts.EntityCartAnchor;
 import mods.railcraft.common.core.RailcraftConfig;
 import mods.railcraft.common.plugins.forge.LocalizationPlugin;
@@ -164,14 +162,7 @@ public class ChunkManager
                 int y = ticket.getModData().getInteger("yCoord");
                 int z = ticket.getModData().getInteger("zCoord");
 
-                if (y >= 0) {
-                    TileEntity tile = world.getTileEntity(x, y, z);
-                    if (tile instanceof TileAnchorWorld) {
-                        TileAnchorWorld anchor = (TileAnchorWorld) tile;
-                        anchor.forceChunkLoading(ticket);
-                        printAnchor(anchor.getName(), x, y, z);
-                    }
-                }
+                mods.railcraft.common.util.anchors.AnchorManager.INSTANCE.restore(ticket);
             } else {
                 if (entity instanceof EntityCartAnchor) {
                     EntityCartAnchor anchor = (EntityCartAnchor) entity;
@@ -198,7 +189,7 @@ public class ChunkManager
                 int z = ticket.getModData().getInteger("zCoord");
                 String type = ticket.getModData().getString("type");
 
-                if (y >= 0) {
+                {
                     if (type.equals(EnumMachineAlpha.ADMIN_ANCHOR.getTag())) adminTickets.add(ticket);
                     else if (type.equals(EnumMachineAlpha.WORLD_ANCHOR.getTag())) worldTickets.add(ticket);
                     else if (type.isEmpty()) worldTickets.add(ticket);

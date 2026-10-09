@@ -58,9 +58,11 @@ public class CommonProxy {
 
     public void onServerAboutToStart(FMLServerAboutToStartEvent event) {
         ticketManager = new TicketManager();
+        mods.railcraft.common.util.anchors.AnchorManager.INSTANCE.reset();
     }
 
     public void onServerStopped(FMLServerStoppedEvent event) {
+        mods.railcraft.common.util.anchors.AnchorManager.INSTANCE.reset();
         ticketManager = null;
     }
 

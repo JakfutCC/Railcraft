@@ -30,6 +30,9 @@ public class ModuleChunkLoading extends RailcraftModule {
     public void initFirst() {
         ForgeChunkManager.setForcedChunkLoadingCallback(Railcraft.getMod(), ChunkManager.getInstance());
         MinecraftForge.EVENT_BUS.register(ChunkManager.getInstance());
+        MinecraftForge.EVENT_BUS.register(mods.railcraft.common.util.anchors.AnchorManager.INSTANCE);
+        cpw.mods.fml.common.FMLCommonHandler.instance().bus()
+                .register(mods.railcraft.common.util.anchors.AnchorManager.INSTANCE);
 
         EnumMachineAlpha alpha = EnumMachineAlpha.WORLD_ANCHOR;
         if (RailcraftConfig.isSubBlockEnabled(alpha.getTag())) {

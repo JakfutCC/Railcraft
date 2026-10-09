@@ -36,6 +36,7 @@ public abstract class RailcraftPacket {
         ITEM_NBT,
         KEY_PRESS,
         GOLDEN_TICKET_GUI,
+        ANCHOR_LIST,
     }
 
     public FMLProxyPacket getPacket() {

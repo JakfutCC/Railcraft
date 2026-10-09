@@ -40,11 +40,14 @@ import mods.railcraft.common.core.RailcraftConstants;
 import mods.railcraft.common.gui.EnumGui;
 import mods.railcraft.common.gui.GuiHandler;
 import mods.railcraft.common.plugins.forge.ChatPlugin;
+import mods.railcraft.common.plugins.forge.PlayerPlugin;
 import mods.railcraft.common.plugins.forge.PowerPlugin;
 import mods.railcraft.common.plugins.forge.WorldPlugin;
+import mods.railcraft.common.util.anchors.AnchorLoading;
+import mods.railcraft.common.util.anchors.AnchorManager;
+import mods.railcraft.common.util.anchors.AnchorVolume;
 import mods.railcraft.common.util.collections.ItemMap;
 import mods.railcraft.common.util.effects.EffectManager;
-import mods.railcraft.common.util.misc.ChunkManager;
 import mods.railcraft.common.util.misc.Game;
 import mods.railcraft.common.util.misc.IAnchor;
 
@@ -55,8 +58,6 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
 
     private static final int SENTINEL_CHECK = 128;
     private static final byte MAX_CHUNKS = 25;
-    private static final byte FUEL_CYCLE = 9;
-    private static final byte ANCHOR_RADIUS = 1;
     private static final int[] SLOTS = new int[] { 0 };
     private static final int[] SLOTS_NO_ACCESS = new int[] {};
     private int xSentinel = -1;
@@ -65,7 +66,9 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     private int prevX, prevY, prevZ;
     private Set<ChunkCoordIntPair> chunks;
     private long fuel;
-    private int fuelCycle;
+    private final int[] extents = { 1, 1, 1, 1, 1, 1 };
+    private boolean sentinel;
+    private String loadingStatus = "Dormant";
     private boolean hasTicket;
     private boolean refreshTicket;
     private boolean powered;
@@ -92,6 +95,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
 
     @Override
     public boolean blockActivated(EntityPlayer player, int side) {
+        if (Game.isHost(worldObj) && !PlayerPlugin.isOwnerOrOp(getOwner(), player)) return false;
         ItemStack current = player.getCurrentEquippedItem();
         if (current != null && current.getItem() instanceof IToolCrowbar crowbar) {
             if (crowbar.canWhack(player, current, xCoord, yCoord, zCoord)) {
@@ -121,7 +125,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
 
     @Override
     public boolean openGui(EntityPlayer player) {
-        if (needsFuel()) {
+        if (!Game.isHost(worldObj) || PlayerPlugin.isOwnerOrOp(getOwner(), player)) {
             GuiHandler.openGui(EnumGui.WORLD_ANCHOR, player, worldObj, xCoord, yCoord, zCoord);
             return true;
         }
@@ -146,6 +150,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     }
 
     public boolean setSentinel(EntityPlayer player, WorldCoordinate coord) {
+        if (!PlayerPlugin.isOwnerOrOp(getOwner(), player)) return false;
         TileEntity tile = getTargetAt(player, this, coord);
         if (tile == null) return false;
         if (tile instanceof TileSentinel) {
@@ -155,7 +160,12 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
             int xSentinelChunk = tile.xCoord >> 4;
             int zSentinelChunk = tile.zCoord >> 4;
 
-            if (xChunk != xSentinelChunk && zChunk != zSentinelChunk) {
+            boolean cubic = AnchorLoading.isCubic(worldObj);
+            int yChunk = yCoord >> 4;
+            int ySentinelChunk = tile.yCoord >> 4;
+            int axes = (xChunk != xSentinelChunk ? 1 : 0) + (zChunk != zSentinelChunk ? 1 : 0)
+                    + (cubic && yChunk != ySentinelChunk ? 1 : 0);
+            if (axes > 1) {
                 ChatPlugin.sendLocalizedChatFromServer(
                         player,
                         "railcraft.gui.anchor.pair.fail.alignment",
@@ -165,7 +175,8 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
             }
 
             int max = getMaxSentinelChunks();
-            if (Math.abs(xChunk - xSentinelChunk) >= max || Math.abs(zChunk - zSentinelChunk) >= max) {
+            if (Math.abs((long) xChunk - xSentinelChunk) >= max || Math.abs((long) zChunk - zSentinelChunk) >= max
+                    || cubic && Math.abs((long) yChunk - ySentinelChunk) >= max) {
                 ChatPlugin.sendLocalizedChatFromServer(
                         player,
                         "railcraft.gui.anchor.pair.fail.distance",
@@ -177,8 +188,10 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
             xSentinel = tile.xCoord;
             ySentinel = tile.yCoord;
             zSentinel = tile.zCoord;
+            sentinel = true;
 
-            requestTicket();
+            refreshTicket = true;
+            markDirty();
             sendUpdateToClient();
             Railcraft.proxy.getTicketManager().removeTarget(player);
             ChatPlugin.sendLocalizedChatFromServer(player, "railcraft.gui.anchor.pair.success", getLocalizationTag());
@@ -194,13 +207,15 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
         xSentinel = -1;
         ySentinel = -1;
         zSentinel = -1;
+        sentinel = false;
 
-        requestTicket();
+        refreshTicket = true;
+        markDirty();
         sendUpdateToClient();
     }
 
     public boolean hasSentinel() {
-        return ySentinel != -1;
+        return sentinel;
     }
 
     public boolean hasFuel() {
@@ -211,11 +226,11 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     public ArrayList<ItemStack> getDrops(int fortune) {
         ArrayList<ItemStack> items = new ArrayList<ItemStack>();
         ItemStack drop = getMachineType().getItem();
-        if (needsFuel() && hasFuel()) {
-            NBTTagCompound nbt = new NBTTagCompound();
-            nbt.setLong("fuel", fuel);
-            drop.setTagCompound(nbt);
-        }
+        NBTTagCompound nbt = new NBTTagCompound();
+        nbt.setLong("fuel", fuel / 144);
+        nbt.setLong("anchorFuelCubeTicks", fuel);
+        nbt.setIntArray("anchorExtents", extents);
+        drop.setTagCompound(nbt);
         items.add(drop);
         return items;
     }
@@ -223,7 +238,8 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     @Override
     public void initFromItem(ItemStack stack) {
         super.initFromItem(stack);
-        if (needsFuel()) fuel = ItemCartAnchor.getFuel(stack);
+        if (needsFuel()) fuel = ItemCartAnchor.getFuel(stack) * 144;
+        if (stack.hasTagCompound()) readAnchorSettings(stack.getTagCompound());
     }
 
     @Override
@@ -249,27 +265,17 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
 
         if (hasActiveTicket() && (getTicket().world != worldObj || refreshTicket || powered)) releaseTicket();
 
-        if (needsFuel()) {
-            fuelCycle++;
-            if (fuelCycle >= FUEL_CYCLE) {
-                fuelCycle = 0;
-                if (chunks != null && hasActiveTicket() && fuel > 0) fuel -= chunks.size();
-                if (fuel <= 0) {
-                    ItemStack stack = getStackInSlot(0);
-                    if (stack == null || stack.stackSize <= 0) {
-                        setInventorySlotContents(0, null);
-                        releaseTicket();
-                    } else if (getFuelMap().containsKey(stack)) {
-                        decrStackSize(0, 1);
-                        fuel = (long) (getFuelMap().get(stack) * RailcraftConstants.TICKS_PER_HOUR);
-                    }
-                }
-            }
+        AnchorManager.INSTANCE.track(this);
+        if (hasActiveTicket() && needsFuel()) {
+            fuel = Math.max(0, fuel - getCubeCost());
+            markDirty();
+            if (fuel == 0) releaseTicket();
         }
 
         if (clock % SENTINEL_CHECK == 0 && hasSentinel()) {
-            TileEntity tile = worldObj.getTileEntity(xSentinel, ySentinel, zSentinel);
-            if (!(tile instanceof TileSentinel)) clearSentinel();
+            if (worldObj.checkChunksExist(xSentinel, ySentinel, zSentinel, xSentinel, ySentinel, zSentinel)
+                    && !(worldObj.getTileEntity(xSentinel, ySentinel, zSentinel) instanceof TileSentinel))
+                clearSentinel();
         }
 
         if (!hasActiveTicket()) requestTicket();
@@ -303,6 +309,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     public void onBlockRemoval() {
         super.onBlockRemoval();
         releaseTicket();
+        AnchorManager.INSTANCE.remove(this);
     }
 
     @Override
@@ -317,19 +324,21 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
         refreshTicket = true;
     }
 
-    protected void releaseTicket() {
+    public void releaseTicket() {
         refreshTicket = false;
         setTicket(null);
     }
 
     protected void requestTicket() {
-        if (meetsTicketRequirements()) {
+        if (hasActiveTicket()) return;
+        loadingStatus = powered ? "Redstone disabled" : "No fuel or owner offline";
+        if (meetsTicketRequirements() && AnchorManager.INSTANCE.canAcquire(this)) {
             Ticket chunkTicket = getTicketFromForge();
             if (chunkTicket != null) {
                 setTicketData(chunkTicket);
                 forceChunkLoading(chunkTicket);
-            }
-        }
+            } else loadingStatus = "Forge ticket limit";
+        } else if (meetsTicketRequirements()) loadingStatus = "Volume or owner budget exceeded";
     }
 
     public boolean needsFuel() {
@@ -342,7 +351,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     }
 
     protected boolean meetsTicketRequirements() {
-        return !powered && (hasFuel() || !needsFuel());
+        return !powered && !isInvalid() && (hasFuel() || !needsFuel() || hasFuelItem());
     }
 
     protected Ticket getTicketFromForge() {
@@ -369,37 +378,115 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
         Ticket ticket = getTicket();
         if (ticket != t) {
             if (ticket != null) {
-                if (ticket.world == worldObj) {
-                    for (ChunkCoordIntPair chunk : ticket.getChunkList()) {
-                        if (ForgeChunkManager.getPersistentChunksFor(worldObj).keys().contains(chunk))
-                            ForgeChunkManager.unforceChunk(ticket, chunk);
-                    }
-                    ForgeChunkManager.releaseTicket(ticket);
-                }
+                AnchorLoading.release(ticket);
                 Railcraft.proxy.getTicketManager().tickets.remove(getUUID());
             }
             changed = true;
         }
         hasTicket = t != null;
         if (hasTicket) Railcraft.proxy.getTicketManager().tickets.put(getUUID(), t);
+        if (!hasTicket) chunks = null;
         if (changed) sendUpdateToClient();
     }
 
     public void forceChunkLoading(Ticket ticket) {
-        setTicket(ticket);
-
-        setupChunks();
-
-        if (chunks != null) for (ChunkCoordIntPair chunk : chunks) {
-            ForgeChunkManager.forceChunk(ticket, chunk);
+        AnchorManager.INSTANCE.track(this);
+        AnchorVolume volume = getVolume();
+        int limit = AnchorLoading.ticketLimit(ticket);
+        if (!meetsTicketRequirements() || !AnchorManager.INSTANCE.canAcquire(this)
+                || limit > 0 && volume.size() > limit) {
+            loadingStatus = "Inactive: fuel, owner or loading limit";
+            if (getTicket() == ticket) releaseTicket();
+            else AnchorLoading.release(ticket);
+            return;
         }
+        setTicket(ticket);
+        try {
+            AnchorLoading.force(ticket, volume);
+        } catch (RuntimeException error) {
+            releaseTicket();
+            throw error;
+        }
+        if (needsFuel() && fuel <= 0) {
+            ItemStack stack = getStackInSlot(0);
+            fuel = (long) (getFuelMap().get(stack) * RailcraftConstants.TICKS_PER_HOUR * 144D);
+            decrStackSize(0, 1);
+        }
+        refreshTicket = false;
+        prevX = xCoord;
+        prevY = yCoord;
+        prevZ = zCoord;
+        loadingStatus = "Active";
+        setupChunks();
+        markDirty();
     }
 
     public void setupChunks() {
         if (!hasTicket) chunks = null;
-        else if (hasSentinel()) chunks = ChunkManager.getInstance()
-                .getChunksBetween(xCoord >> 4, zCoord >> 4, xSentinel >> 4, zSentinel >> 4, getMaxSentinelChunks());
-        else chunks = ChunkManager.getInstance().getChunksAround(xCoord >> 4, zCoord >> 4, ANCHOR_RADIUS);
+        else chunks = getVolume().columns();
+    }
+
+    public boolean hasFuelItem() {
+        ItemStack stack = getStackInSlot(0);
+        return stack != null && stack.stackSize > 0 && getFuelMap().containsKey(stack) && getFuelMap().get(stack) > 0;
+    }
+
+    public boolean shouldRestore() {
+        return !powered && !(this instanceof TileAnchorPassive) && (hasFuel() || !needsFuel() || hasFuelItem());
+    }
+
+    public void prepareLoading() {
+        if (!hasActiveTicket()) requestTicket();
+    }
+
+    public int getExtent(int side) {
+        return extents[side];
+    }
+
+    public void setExtents(int[] values) {
+        if (values.length != 6) return;
+        for (int value : values) if (value < 0 || value > RailcraftConfig.anchorMaxExtent) return;
+        int[] old = extents.clone();
+        boolean oldSentinel = sentinel;
+        sentinel = false;
+        System.arraycopy(values, 0, extents, 0, 6);
+        if (getCubeCost() > 32768
+                || !(this instanceof TileAnchorAdmin) && getCubeCost() > RailcraftConfig.anchorMaxCubes) {
+            System.arraycopy(old, 0, extents, 0, 6);
+            sentinel = oldSentinel;
+            return;
+        }
+        sentinel = false;
+        refreshTicket = true;
+        markDirty();
+        sendUpdateToClient();
+    }
+
+    public AnchorVolume getVolume() {
+        boolean cubic = AnchorLoading.isCubic(worldObj);
+        int x = xCoord >> 4, y = yCoord >> 4, z = zCoord >> 4;
+        int minX = x - extents[0], maxX = x + extents[1];
+        int minY = y - extents[2], maxY = y + extents[3];
+        int minZ = z - extents[4], maxZ = z + extents[5];
+        if (sentinel) {
+            minX = Math.min(x, xSentinel >> 4);
+            maxX = Math.max(x, xSentinel >> 4);
+            minY = Math.min(y, ySentinel >> 4);
+            maxY = Math.max(y, ySentinel >> 4);
+            minZ = Math.min(z, zSentinel >> 4);
+            maxZ = Math.max(z, zSentinel >> 4);
+        }
+        minY = cubic ? Math.max(AnchorLoading.minCube(worldObj), minY) : 0;
+        maxY = cubic ? Math.min(AnchorLoading.maxCube(worldObj), maxY) : 0;
+        return new AnchorVolume(minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    public long getCubeCost() {
+        return getVolume().size() * (AnchorLoading.isCubic(worldObj) ? 1 : 16);
+    }
+
+    public String getLoadingStatus() {
+        return loadingStatus;
     }
 
     public boolean isPowered() {
@@ -427,6 +514,8 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
         data.writeInt(xSentinel);
         data.writeInt(ySentinel);
         data.writeInt(zSentinel);
+        data.writeBoolean(sentinel);
+        for (int value : extents) data.writeInt(value);
     }
 
     @Override
@@ -442,17 +531,20 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
         xSentinel = data.readInt();
         ySentinel = data.readInt();
         zSentinel = data.readInt();
+        sentinel = data.readBoolean();
+        for (int i = 0; i < 6; i++) extents[i] = data.readInt();
 
-        if (Game.isHost(worldObj)) {
-            setupChunks();
-        }
+        setupChunks();
     }
 
     @Override
     public void writeToNBT(NBTTagCompound data) {
         super.writeToNBT(data);
 
-        data.setLong("fuel", fuel);
+        data.setLong("fuel", fuel / 144);
+        data.setLong("anchorFuelCubeTicks", fuel);
+        data.setIntArray("anchorExtents", extents);
+        data.setBoolean("hasSentinel", sentinel);
 
         data.setBoolean("powered", powered);
 
@@ -469,17 +561,28 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
     public void readFromNBT(NBTTagCompound data) {
         super.readFromNBT(data);
 
-        if (needsFuel()) fuel = data.getLong("fuel");
+        if (needsFuel()) fuel = Math.max(0, data.getLong("fuel")) * 144;
+        readAnchorSettings(data);
 
         powered = data.getBoolean("powered");
 
         xSentinel = data.getInteger("xSentinel");
         ySentinel = data.getInteger("ySentinel");
         zSentinel = data.getInteger("zSentinel");
+        sentinel = data.hasKey("hasSentinel") ? data.getBoolean("hasSentinel")
+                : data.hasKey("ySentinel") && ySentinel != -1;
 
         prevX = data.getInteger("prevX");
         prevY = data.getInteger("prevY");
         prevZ = data.getInteger("prevZ");
+    }
+
+    private void readAnchorSettings(NBTTagCompound data) {
+        if (data.hasKey("anchorFuelCubeTicks")) fuel = Math.max(0, data.getLong("anchorFuelCubeTicks"));
+        int[] values = data.getIntArray("anchorExtents");
+        if (values.length == 6) {
+            for (int i = 0; i < 6; i++) extents[i] = Math.max(0, Math.min(128, values[i]));
+        }
     }
 
     @Override
@@ -494,7 +597,7 @@ public class TileAnchorWorld extends TileMachineItem implements IAnchor, ISidedI
 
     @Override
     public long getAnchorFuel() {
-        return fuel;
+        return worldObj == null ? fuel / 144 : fuel / Math.max(1, getCubeCost());
     }
 
     @Override

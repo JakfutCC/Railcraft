@@ -106,6 +106,12 @@ public class RailcraftConfig {
     private static boolean anchorCraftingPassive;
     private static boolean anchorsCanInteractWithPipes;
     private static boolean printAnchors;
+    public static int anchorMaxCubes = 4096;
+    public static int anchorMaxExtent = 32;
+    public static int anchorOwnerCubeBudget = 4096;
+    public static int anchorIdleSeconds = 300;
+    public static boolean anchorRankLimits = true;
+    public static boolean anchorWatchdog = false;
     private static boolean minecartsBreakOnDrop;
     private static boolean adjustBasicCartDrag;
     private static boolean chestAllowLiquids;
@@ -228,6 +234,46 @@ public class RailcraftConfig {
     }
 
     private static void loadAnchorSettings() {
+        anchorMaxCubes = Math.max(
+                1,
+                get(
+                        CAT_ANCHORS,
+                        "maximum.cubes",
+                        4096,
+                        "Maximum cubes per block anchor; vanilla columns count as 16 cubes. Server enforced."));
+        anchorMaxExtent = Math.max(
+                0,
+                Math.min(
+                        128,
+                        get(
+                                CAT_ANCHORS,
+                                "maximum.extent",
+                                32,
+                                "Maximum extension in each direction, in cubes (chunks without CC).")));
+        anchorOwnerCubeBudget = Math.max(
+                1,
+                get(
+                        CAT_ANCHORS,
+                        "owner.cube.budget",
+                        4096,
+                        "Per-owner cube budget without ServerUtilities rank integration."));
+        anchorIdleSeconds = Math.max(
+                30,
+                get(
+                        CAT_ANCHORS,
+                        "idle.dimension.seconds",
+                        300,
+                        "Grace before unloading playerless dimensions held only by passive anchors."));
+        anchorRankLimits = get(
+                CAT_ANCHORS,
+                "serverutilities.rank.limits",
+                true,
+                "Use each owner's ServerUtilities chunkloader rank limit; one rank chunk is 16 cubes.");
+        anchorWatchdog = get(
+                CAT_ANCHORS,
+                "idle.dimension.watchdog",
+                false,
+                "Also evict playerless dimensions with no loading tickets, even without passive anchors. Excludes spawn dimensions.");
         deleteAnchors = get(
                 CAT_ANCHORS,
                 "delete.anchors",

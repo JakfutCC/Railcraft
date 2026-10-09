@@ -112,6 +112,10 @@ public class PacketHandler {
                 case GOLDEN_TICKET_GUI:
                     pkt = new PacketTicketGui();
                     break;
+                case ANCHOR_LIST:
+                    if (player != null) return;
+                    pkt = new PacketAnchorList();
+                    break;
                 default:
                     return;
             }

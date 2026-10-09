@@ -246,10 +246,12 @@ public final class Railcraft {
     public void serverStarting(FMLServerStartingEvent event) {
         CommandHandler commandManager = (CommandHandler) event.getServer().getCommandManager();
         commandManager.registerCommand(rootCommand);
+        commandManager.registerCommand(new mods.railcraft.common.util.anchors.CommandAnchors());
     }
 
     @Mod.EventHandler
     public void serverCleanUp(FMLServerStoppingEvent event) {
+        mods.railcraft.common.util.anchors.AnchorManager.INSTANCE.rememberAll();
         LinkageManager.reset();
     }
 
